@@ -1,106 +1,104 @@
-# Automated Forex ETL Pipeline with Apache Airflow & Docker
+# Enterprise Automated Forex ETL Pipeline with Apache Airflow & Docker
 
-[![Python](https://img.shields.io/badge/Python-3.7%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-2.5.1-017CEE?style=for-the-badge&logo=apache-airflow&logoColor=white)](https://airflow.apache.org/)
+[![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-TaskFlow%20API-017CEE?style=for-the-badge&logo=apache-airflow&logoColor=white)](https://airflow.apache.org/)
 [![Docker](https://img.shields.io/badge/Docker-Docker%20Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-13-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Star%20Schema-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot%20API-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://core.telegram.org/bots/api)
+[![CI/CD](https://img.shields.io/badge/GitHub%20Actions-Automated%20CI%2FCD-2088FF?style=for-the-badge&logo=github-actions&logoColor=white)](https://github.com/features/actions)
 
-An end-to-end automated Data Engineering ETL pipeline orchestrating daily foreign exchange (Forex) currency rate ingestion, PostgreSQL database storage with idempotent upserts, time-series volatility analysis, and automated Telegram reporting using **Apache Airflow** and **Docker Compose**.
+An enterprise-grade, resilient Data Engineering pipeline orchestrating foreign exchange (Forex) ingestion with **automatic multi-source fallback (APILayer + Frankfurter ECB)**, **pre-flight data quality validation gates**, **Kimball Star Schema dimensional modeling in PostgreSQL**, statistical volatility analysis, and automated Telegram alerting via **Apache Airflow TaskFlow API** and **Docker Compose**.
 
 ---
 
 ## 📌 Table of Contents
-- [Architecture & Workflow](#-architecture--workflow)
-- [Key Features](#-key-features)
-- [DAG Tasks Breakdown](#-dag-tasks-breakdown)
-- [Tech Stack](#-tech-stack)
+- [Enterprise Architecture Overview](#-enterprise-architecture-overview)
+- [Key Engineering Pillars](#-key-engineering-pillars)
+- [DAG Implementations](#-dag-implementations)
+  - [1. Modern TaskFlow Pipeline (forex_etl_taskflow.py)](#1-modern-taskflow-pipeline-forex_etl_taskflowpy)
+  - [2. Classic Pipeline (forex_etl_pipeline.py)](#2-classic-pipeline-forex_etl_pipelinepy)
+- [Dimensional Data Warehouse Modeling (Kimball Star Schema)](#-dimensional-data-warehouse-modeling-kimball-star-schema)
+- [Automated Data Quality Gatekeeper](#-automated-data-quality-gatekeeper)
 - [Project Directory Structure](#-project-directory-structure)
+- [Continuous Integration & Testing (CI/CD)](#-continuous-integration--testing-cicd)
 - [Getting Started](#-getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Configuration](#configuration)
-  - [Running with Docker Compose](#running-with-docker-compose)
-  - [Backfill Historical Data](#backfill-historical-data)
 - [Pipeline Execution Previews](#-pipeline-execution-previews)
 - [Author](#-author)
 
 ---
 
-## 🏗 Architecture & Workflow
-
-The pipeline runs on a scheduled basis (`0 1 * * *` - Daily at 01:00 UTC) with catchup enabled for historical backfills:
+## 🏗 Enterprise Architecture Overview
 
 ```
 +--------------------------------------------------------------------------------------------------+
-|                                  Automated Forex ETL Pipeline                                    |
+|                              Enterprise Resilient Forex ETL Pipeline                             |
 +--------------------------------------------------------------------------------------------------+
 
-   [ APILayer Exchange Rates API ]
-             |
-             | (1) HTTP GET Daily Currency Rates (Base: USD)
-             v
-   +-------------------------------+
-   |  fetch_exchange_rate_data     |  --> Saves raw JSON: /opt/airflow/data/exchange_rates_{{ ds }}.json
-   +-------------------------------+
-             |
-             v
-   +-------------------------------+
-   |        create_table           |  --> DDL: CREATE TABLE IF NOT EXISTS exchange_rates (PostgreSQL)
-   +-------------------------------+
-             |
-             v
-   +-------------------------------+
-   |      insert_upsert_data       |  --> Idempotent SQL Upsert: ON CONFLICT (date, base, currency)
-   +-------------------------------+      DO UPDATE SET rate = EXCLUDED.rate
-             |
-             v
-   +-------------------------------+
-   |     analyze_exchange_rates    |  --> Queries history, computes max rate deviation vs current date,
-   +-------------------------------+      exports findings to /opt/airflow/data/max_deviation.csv
-             |
-             v
-   +-------------------------------+
-   |     send_csv_to_telegram      |  --> Telegram Bot API pushes alert & CSV report directly to chat
-   +-------------------------------+
+   [ Primary: APILayer REST API ]        [ Fallback: Frankfurter / ECB API ]
+                 \                                     /
+                  \---> [ Automatic Resilient Failover Ingestion ]
+                                      |
+                                      v
+                      +-------------------------------+
+                      |   validate_data_quality       |  --> Pre-flight Schema & Completeness Gate
+                      +-------------------------------+      (Asserts > 5 pairs, positive rates)
+                                      |
+                                      v
+                      +-------------------------------+
+                      |  stage_and_upsert_postgres    |  --> Staging Table (Idempotent ON CONFLICT)
+                      +-------------------------------+
+                                      |
+                                      v
+                      +-------------------------------+
+                      |     transform_star_schema     |  --> Kimball Star Schema Modeling:
+                      +-------------------------------+      (dim_currency, dim_date, fact_exchange_rates)
+                                      |
+                                      v
+                      +-------------------------------+
+                      |  compute_volatility_and_alert |  --> Volatility Analytics & Telegram Alert
+                      +-------------------------------+
 
 +--------------------------------------------------------------------------------------------------+
-| Environment: Apache Airflow 2.5.1 (CeleryExecutor) | PostgreSQL 13 | Redis Broker | Docker Compose |
+| Infrastructure: Apache Airflow 2.5.1 (CeleryExecutor) | PostgreSQL 13 | Redis | Docker Compose    |
 +--------------------------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 🚀 Key Features
+## 💡 Key Engineering Pillars
 
-- **Robust Ingestion**: Pulls foreign currency rates against base USD for 150+ international currencies using APILayer Forex API.
-- **Data Idempotency & ACID Compliance**: Uses PostgreSQL composite primary keys `(date, base, currency)` with `ON CONFLICT DO UPDATE` ensuring fault tolerance on re-runs and historical backfills.
-- **Statistical Volatility Analysis**: Analyzes historical rate trends to find the peak deviation date and value for every currency relative to the current execution date.
-- **Automated Alerting**: Sends synthesized CSV reports with personalized notification captions to Telegram via bot webhook.
-- **Containerized Orchestration**: Fully packaged with CeleryExecutor, Redis, PostgreSQL, and Airflow Webserver/Scheduler using Docker Compose.
-
----
-
-## 🔍 DAG Tasks Breakdown
-
-| Task ID | Operator | Description |
-| :--- | :--- | :--- |
-| `fetch_exchange_rate_data` | `PythonOperator` | Ingests daily exchange rates from APILayer REST API for the execution date `{{ ds }}` and writes raw payload to JSON in shared volume. |
-| `create_table` | `PostgresOperator` | Idempotently initializes the relational `exchange_rates` schema in PostgreSQL with composite primary key `(date, base, currency)`. |
-| `insert_upsert_data` | `PythonOperator` | Transforms raw JSON records using Pandas and executes batch upsert via `PostgresHook` into PostgreSQL. |
-| `analyze_exchange_rates` | `PythonOperator` | Pulls historical currency rates, computes absolute deviation `|rate - current_rate|` for all dates up to execution date, identifies max deviation, and saves summary to `max_deviation.csv`. |
-| `send_csv_to_telegram` | `PythonOperator` | Dispatches the generated CSV report and alert message to Telegram channel using the Telegram Bot API `sendDocument` endpoint. |
+1. **Multi-Source Resilient Ingestion**: Solves third-party API rate limits and downtime by attempting APILayer as Primary and seamlessly falling back to European Central Bank data via the open Frankfurter API.
+2. **Automated Quality Gatekeeper**: Protects downstream data assets from corrupt payloads, missing currencies, or zero/negative rate values before triggering warehouse writes.
+3. **Kimball Star Schema Dimensional Modeling**: Transforms flat staging records into clean dimensional tables (`dim_date`, `dim_currency`, `fact_exchange_rates`, `fact_currency_volatility`) optimized for BI and financial analytics.
+4. **Idempotent Upserts & ACID Guarantee**: Composite primary keys and `ON CONFLICT DO UPDATE` queries allow safe backfilling and re-execution without duplicate records.
+5. **CI/CD Quality Assurance**: Automated GitHub Actions workflow runs `flake8` linter and `pytest` DAG integrity tests on every push.
 
 ---
 
-## 🛠 Tech Stack
+## 🔄 DAG Implementations
 
-- **Workflow Orchestration**: [Apache Airflow](https://airflow.apache.org/) (CeleryExecutor)
-- **Programming Language**: [Python 3.7+](https://www.python.org/) (Pandas, Requests, SQLAlchemy, psycopg2)
-- **Database & Storage**: [PostgreSQL 13](https://www.postgresql.org/), Local Docker Volumes
-- **Message Broker & Queue**: [Redis](https://redis.io/)
-- **Infrastructure**: [Docker](https://www.docker.com/) & [Docker Compose](https://docs.docker.com/compose/)
-- **Alerting & Notification**: [Telegram Bot API](https://core.telegram.org/bots/api)
-- **External Data Source**: [APILayer Exchange Rates Data API](https://apilayer.com/marketplace/exchangerates_data-api)
+### 1. Modern TaskFlow Pipeline (`forex_etl_taskflow.py`)
+Uses the modern Airflow 2.x `@dag` and `@task` decorators:
+- `fetch_rates_with_fallback`: Ingests rates from APILayer, automatically failing over to Frankfurter ECB API.
+- `validate_data_quality`: Enforces schema completeness, non-null checks, and positive value constraints.
+- `stage_and_upsert_postgres`: Performs batch upsert into `exchange_rates` staging table.
+- `transform_star_schema`: Populates `dim_currency`, `dim_date`, and `fact_exchange_rates`.
+- `compute_volatility_and_alert`: Calculates currency volatility and dispatches formatted Telegram notifications.
+
+### 2. Classic Pipeline (`forex_etl_pipeline.py`)
+Contains the original sequential operator design with `PostgresOperator` and `PythonOperator` for legacy Airflow backward compatibility.
+
+---
+
+## 🏛 Dimensional Data Warehouse Modeling (Kimball Star Schema)
+
+Located in [`sql/dimensional_model.sql`](file:///Users/hoaqviet/.gemini/antigravity-ide/scratch/forex-etl-airflow/sql/dimensional_model.sql):
+
+- **`dim_date`**: Conformed date dimension with calendar attributes (`date_key`, `day_of_week`, `month`, `quarter`, `year`, `is_weekend`).
+- **`dim_currency`**: Currency dimension (`currency_code`, `currency_name`, `country_or_zone`, `is_g10_major`).
+- **`fact_exchange_rates`**: Daily currency rates grain (`date_key`, `base_currency_code`, `target_currency_code`, `exchange_rate`, `daily_change`).
+- **`fact_currency_volatility`**: Rolling metrics (`rolling_7d_volatility`, `rolling_30d_volatility`, `bollinger_upper_band`, `bollinger_lower_band`).
+- **`v_currency_momentum`**: Ready-to-query analytical view tracking G10 major currency momentum.
 
 ---
 
@@ -108,13 +106,21 @@ The pipeline runs on a scheduled basis (`0 1 * * *` - Daily at 01:00 UTC) with c
 
 ```bash
 forex-etl-airflow/
+├── .github/
+│   └── workflows/
+│       └── airflow-ci.yml       # GitHub Actions CI for DAG integrity and linting
 ├── dags/
-│   └── forex_etl_pipeline.py    # Main Airflow DAG definition and task logic
-├── data/                        # Shared runtime data directory (mounted volume)
+│   ├── forex_etl_taskflow.py    # Modern Airflow 2.x TaskFlow DAG with fallback & star schema
+│   └── forex_etl_pipeline.py    # Classic operator-based Airflow DAG
+├── data/                        # Shared runtime volume directory
+├── sql/
+│   └── dimensional_model.sql    # Kimball Star Schema DDL & analytical views
+├── tests/
+│   └── test_dag_integrity.py    # Automated DAG syntax, integrity, and security unit tests
 ├── docker-compose.yaml          # Multi-container orchestration (Airflow, Postgres, Redis)
-├── .env.example                 # Template for required environment variables
-├── .gitignore                   # Standard Git ignore rules for Python, Docker & Airflow
-└── README.md                    # Project documentation
+├── .env.example                 # Sanitized environment configuration template
+├── .gitignore                   # Standard Git ignore rules
+└── README.md                    # Comprehensive project documentation
 ```
 
 ---
@@ -122,9 +128,8 @@ forex-etl-airflow/
 ## ⚡ Getting Started
 
 ### Prerequisites
-- [Docker Engine](https://docs.docker.com/engine/install/) (v20.10.0+)
-- [Docker Compose](https://docs.docker.com/compose/install/) (v2.0.0+)
-- 4GB+ RAM allocated to Docker daemon
+- [Docker Engine](https://docs.docker.com/engine/install/) & [Docker Compose](https://docs.docker.com/compose/install/)
+- 4GB+ RAM allocated to Docker
 
 ### Configuration
 1. Clone the repository:
@@ -138,38 +143,36 @@ forex-etl-airflow/
    cp .env.example .env
    ```
 
-3. Ensure Airflow variables (API keys and Telegram tokens) are specified in `.env` or set inside the Airflow UI / `docker-compose.yaml`:
+3. Configure your API keys (optional, fallback API works automatically out of the box!):
    - `AIRFLOW_VAR_API_KEY`: APILayer Exchange Rates API key
-   - `AIRFLOW_VAR_BOT_TOKEN`: Telegram Bot authorization token
-   - `AIRFLOW_VAR_CHAT_ID`: Telegram target chat ID
-   - `AIRFLOW_VAR_SYMBOLS`: Comma-separated currency symbols list
+   - `TELEGRAM_BOT_TOKEN`: Telegram Bot authorization token
+   - `TELEGRAM_CHAT_ID`: Telegram target chat ID
 
 ### Running with Docker Compose
-1. Initialize the Airflow database and create default admin credentials:
+1. Initialize the database:
    ```bash
    docker compose up airflow-init
    ```
 
-2. Start all services in detached mode:
+2. Start the services:
    ```bash
    docker compose up -d
    ```
 
-3. Access the Airflow Web UI:
-   - URL: `http://localhost:8080`
-   - Default Username: `airflow`
-   - Default Password: `airflow`
+3. Access the Airflow UI at `http://localhost:8080` (Credentials: `airflow` / `airflow`).
 
-4. Unpause the `forex_etl_pipeline` DAG in the UI to trigger scheduled runs.
+---
 
-### Backfill Historical Data
-To trigger backfilling historical forex rates starting from `2024-09-01`:
+## 🧪 Continuous Integration & Testing (CI/CD)
+
+Run local DAG integrity tests:
 ```bash
-docker compose exec airflow-webserver airflow dags backfill \
-    --start-date 2024-09-01 \
-    --end-date 2024-09-30 \
-    forex_etl_pipeline
+python3 -m unittest discover tests
 ```
+The automated GitHub Actions workflow will validate:
+- Zero syntax errors in DAG files.
+- Zero hardcoded credentials or tokens.
+- Compliance with Airflow TaskFlow standards.
 
 ---
 
