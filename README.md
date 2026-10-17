@@ -107,7 +107,7 @@ The pipeline runs on a scheduled basis (`0 1 * * *` - Daily at 01:00 UTC) with c
 ## 📁 Project Directory Structure
 
 ```bash
-forex_etl_airflow/
+forex-etl-airflow/
 ├── dags/
 │   └── forex_etl_pipeline.py    # Main Airflow DAG definition and task logic
 ├── data/                        # Shared runtime data directory (mounted volume)
@@ -129,8 +129,8 @@ forex_etl_airflow/
 ### Configuration
 1. Clone the repository:
    ```bash
-   git clone https://github.com/hqvz28/forex_etl_airflow.git
-   cd forex_etl_airflow
+   git clone https://github.com/hqvz28/forex-etl-airflow.git
+   cd forex-etl-airflow
    ```
 
 2. Copy the environment configuration:
