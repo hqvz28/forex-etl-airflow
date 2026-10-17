@@ -1,0 +1,43 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables & secrets
+.env
+*.env
+.env.*
+!.env.example
+
+# Airflow logs and run files
+logs/
+airflow-*.err
+airflow-*.log
+airflow-*.out
+airflow-*.pid
+
+# Runtime generated data
+data/*.json
+data/*.csv
+!data/.gitkeep
+
+# Operating System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDE & Editor configs
+.idea/
+.vscode/
+*.swp
+*.swo
